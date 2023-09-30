@@ -43,10 +43,8 @@ pub enum ABI {
 }
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum Type {
-    #[default]
-    None = 0,
     Rel = 1,
     Exec = 2,
     Dyn = 3,
@@ -54,10 +52,8 @@ pub enum Type {
 }
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum Machine {
-    #[default]
-    None = 0x00,
     M32 = 0x01,
     SPARC = 0x02,
     X86 = 0x03,
