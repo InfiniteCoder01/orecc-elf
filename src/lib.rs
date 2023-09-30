@@ -8,237 +8,470 @@
 //!
 //! To write an elf file:
 //! ```
+//! // TODO: Add an actual example with some actual code
 //! let mut file = std::fs::File::create("test.o").unwrap();
 //! orecc_elf::ELF::new(
 //!     orecc_elf::Ident::default(),
 //!     orecc_elf::Type::Exec,
 //!     orecc_elf::Machine::X86_64,
 //!     0xDEADBEEF_u64,
+//!     Vec::new(),
+//!     Vec::new(),
 //! )
 //! .unwrap()
-//! .write(file)
+//! .write(&mut file)
 //! .unwrap();
 //! ```
 
-use int_enum::IntEnum;
 mod serde;
 use serde::*;
 
+macro_rules! int_enum {
+    ($name: ident as $type: ty: $($variant: ident = $value: expr,)+) => {
+        impl $name {
+            fn int_value(self) -> $type {
+                match self {
+                    $(Self::$variant => $value,)+
+                    Self::Custom(value) => value,
+                }
+            }
+
+            fn from_int(value: $type) -> Self {
+                match value {
+                    $($value => Self::$variant,)+
+                    value => Self::Custom(value),
+                }
+            }
+        }
+    };
+
+    // No custom
+    (!$name: ident as $type: ty: $($variant: ident = $value: expr,)+) => {
+        impl $name {
+            fn int_value(self) -> $type {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+
+            fn from_int(value: $type) -> Result<Self> {
+                match value {
+                    $($value => Ok(Self::$variant),)+
+                    value => Err(Error::Error(format!("Invalid value for {}: {value}", stringify!($name)))),
+                }
+            }
+        }
+    };
+}
+
 // * ------------------------------------ Structs ----------------------------------- * //
 /// Class, stored in e_ident. ELF32/ELF64
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
-    /// 32 bit ELF file. Adresses are encoded as u32.
-    ELF32 = 1,
-    /// 64 bit ELF file. Adresses are encoded as u64.
+    /// 32 bit ELF file. Adresses are encoded as u32
+    ELF32,
+    /// 64 bit ELF file. Adresses are encoded as u64
     #[default]
+    ELF64,
+    /// Custom value
+    Custom(u8),
+}
+
+int_enum! {
+    Class as u8:
+    ELF32 = 1,
     ELF64 = 2,
 }
 
 /// Byte order, stored in e_ident.
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ByteOrder {
     /// Little Endian
     #[default]
-    LSB = 1,
+    LSB,
     /// Big endian
+    MSB,
+}
+
+int_enum! {
+    !ByteOrder as u8:
+    LSB = 1,
     MSB = 2,
 }
 
 /// ABI. There is planety to chose from, but you probably should just use [ABI::None]
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ABI {
     #[default]
-    None = 0,
-    HPUX = 1,
-    NetBSD = 2,
-    Linux = 3,
-    Solaris = 4,
-    AIX = 5,
-    IRIX = 6,
-    FreeBSD = 7,
-    Tru64 = 8,
-    Modesto = 9,
-    OpenBSD = 10,
-    OpenVMS = 11,
-    NSK = 12,
-    AROS = 13,
-    FenixOS = 14,
-    CloudABI = 15,
-    OpenVOS = 16,
+    /// System V
+    None,
+    /// HP-UX
+    HPUX,
+    /// NetBSD
+    NetBSD,
+    /// Linux
+    Linux,
+    /// GNU Hurd
+    Hurd,
+    /// Solaris
+    Solaris,
+    /// AIX (Monterey)
+    AIX,
+    /// IRIX
+    IRIX,
+    /// FreeBSD
+    FreeBSD,
+    /// Tru64
+    Tru64,
+    /// Novell Modesto
+    Modesto,
+    /// OpenBSD
+    OpenBSD,
+    /// OpenVMS
+    OpenVMS,
+    /// NonStop Kernel
+    NSK,
+    /// AROS
+    AROS,
+    /// FenixOS
+    FenixOS,
+    /// Nuxi CloudABI
+    CloudABI,
+    /// Stratus Technologies OpenVOS
+    OpenVOS,
+    /// Custom value
+    Custom(u8),
+}
+
+int_enum! {
+    ABI as u8:
+    None = 0x00,
+    HPUX = 0x01,
+    NetBSD = 0x02,
+    Linux = 0x03,
+    Hurd = 0x04,
+    Solaris = 0x06,
+    AIX = 0x07,
+    IRIX = 0x08,
+    FreeBSD = 0x09,
+    Tru64 = 0x0A,
+    Modesto = 0x0B,
+    OpenBSD = 0x0C,
+    OpenVMS = 0x0D,
+    NSK = 0x0E,
+    AROS = 0x0F,
+    FenixOS = 0x10,
+    CloudABI = 0x11,
+    OpenVOS = 0x12,
 }
 
 /// Type of the ELF.
-#[repr(u16)]
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Type {
     /// Relocatable file
-    Rel = 1,
+    Rel,
     /// Executable file
-    Exec = 2,
+    Exec,
     /// Shared object
-    Dyn = 3,
+    Dyn,
     /// Core file
+    Core,
+    /// Custom value
+    Custom(u16),
+}
+
+int_enum! {
+    Type as u16:
+    Rel = 1,
+    Exec = 2,
+    Dyn = 3,
     Core = 4,
 }
 
 /// Machine. There is A LOT of them. Most common are [Machine::X86], [Machine::X86_64], [Machine::ARM] and [Machine::ARM64]
-#[repr(u16)]
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Machine {
     /// No specific instruction set
-    None = 0x00,
+    None,
     /// AT&T WE 32100
-    M32 = 0x01,
+    M32,
     /// SPARC
-    SPARC = 0x02,
+    SPARC,
     /// x86
-    X86 = 0x03,
+    X86,
     /// Motorola 68000 (M68k)
-    M68k = 0x04,
+    M68k,
     /// Motorola 88000 (M88k)
-    M88k = 0x05,
+    M88k,
     /// Intel MCU
-    IntelMCU = 0x06,
+    IntelMCU,
     /// Intel 80860
-    Intel80860 = 0x07,
+    Intel80860,
     /// MIPS
-    MIPS = 0x08,
+    MIPS,
     /// IBM System/370
-    S370 = 0x09,
+    S370,
     /// MIPS RS3000 Little-endian
-    MipsRS3LE = 0x0A,
+    MipsRS3LE,
     /// Hewlett-Packard PA-RISC
-    PARISC = 0x0F,
+    PARISC,
     /// Intel 80960
-    Intel80960 = 0x13,
+    Intel80960,
     /// PowerPC
-    PowerPC = 0x14,
+    PowerPC,
     /// PowerPC (64-bit)
-    PowerPC64 = 0x15,
+    PowerPC64,
     /// S390, including S390x
-    S390 = 0x16,
+    S390,
     /// IBM SPU/SPC
-    SPU = 0x17,
+    SPU,
     /// NEC V800
-    V800 = 0x24,
+    V800,
     /// Fujitsu FR20
-    FR20 = 0x25,
+    FR20,
     /// TRW RH-32
-    RH32 = 0x26,
+    RH32,
     /// Motorola RCE
-    RCE = 0x27,
+    RCE,
     /// Arm (up to Armv7/AArch32)
-    ARM = 0x28,
+    ARM,
     /// Digital Alpha
-    DigitalAlpha = 0x29,
+    DigitalAlpha,
     /// SuperH
-    SuperH = 0x2A,
+    SuperH,
     /// SPARC Version 9
-    SPARC9 = 0x2B,
+    SPARC9,
     /// Siemens TriCore embedded processor
-    TriCore = 0x2C,
+    TriCore,
     /// Argonaut RISC Core
-    ARC = 0x2D,
+    ARC,
     /// Hitachi H8/300
-    H8_300 = 0x2E,
+    H8_300,
     /// Hitachi H8/300H
-    H8_300H = 0x2F,
+    H8_300H,
     /// Hitachi H8S
-    H8S = 0x30,
+    H8S,
     /// Hitachi H8/500
-    H8_500 = 0x31,
+    H8_500,
     /// IA-64
-    IA64 = 0x32,
+    IA64,
     /// Stanford MIPS-X
-    MipsX = 0x33,
+    MipsX,
     /// Motorola ColdFire
-    ColdFire = 0x34,
+    ColdFire,
     /// Motorola M68HC12
-    M68HC12 = 0x35,
+    M68HC12,
     /// Fujitsu MMA Multimedia Accelerator
-    MMA = 0x36,
+    MMA,
     /// Siemens PCP
-    PCP = 0x37,
+    PCP,
     /// Sony nCPU embedded RISC processor
-    NCPU = 0x38,
+    NCPU,
     /// Denso NDR1 microprocessor
-    NDR1 = 0x39,
+    NDR1,
     /// Motorola Star*Core processor
-    StarCore = 0x3A,
+    StarCore,
     /// Toyota ME16 processor
-    ME16 = 0x3B,
+    ME16,
     /// STMicroelectronics ST100 processor
-    ST100 = 0x3C,
+    ST100,
     /// Advanced Logic Corp. TinyJ embedded processor family
-    TinyJ = 0x3D,
+    TinyJ,
     /// AMD x86-64
-    X86_64 = 0x3E,
+    X86_64,
     /// Sony DSP Processor
-    SonyDSP = 0x3F,
+    SonyDSP,
     /// Digital Equipment Corp. PDP-10
-    PDP10 = 0x40,
+    PDP10,
     /// Digital Equipment Corp. PDP-11
-    PDP11 = 0x41,
+    PDP11,
     /// Siemens FX66 microcontroller
-    FX66 = 0x42,
+    FX66,
     /// STMicroelectronics ST9+ 8/16 bit microcontroller
-    ST9 = 0x43,
+    ST9,
     /// STMicroelectronics ST7 8-bit microcontroller
-    ST7 = 0x44,
+    ST7,
     /// Motorola MC68HC16 Microcontroller
-    MC68HC16 = 0x45,
+    MC68HC16,
     /// Motorola MC68HC11 Microcontroller
-    MC68HC11 = 0x46,
+    MC68HC11,
     /// Motorola MC68HC08 Microcontroller
-    MC68HC08 = 0x47,
+    MC68HC08,
     /// Motorola MC68HC05 Microcontroller
-    MC68HC05 = 0x48,
+    MC68HC05,
     /// Silicon Graphics SVx
-    SVx = 0x49,
+    SVx,
     /// STMicroelectronics ST19 8-bit microcontroller
-    ST19 = 0x4A,
+    ST19,
     /// Digital VAX
-    DigitalVAX = 0x4B,
+    DigitalVAX,
     /// Axis Communications 32-bit embedded processor
-    AxisCommunications = 0x4C,
+    AxisCommunications,
     /// Infineon Technologies 32-bit embedded processor
-    InfineonTechnologies = 0x4D,
+    InfineonTechnologies,
     /// Element 14 64-bit DSP Processor
-    Element14 = 0x4E,
+    Element14,
     /// LSI Logic 16-bit DSP Processor
-    LSILogic = 0x4F,
+    LSILogic,
     /// TMS320C6000 Family
-    TMS320C6000 = 0x8C,
+    TMS320C6000,
     /// MCST Elbrus e2k
-    MCSTElbrusE2k = 0xAF,
+    MCSTElbrusE2k,
     /// Arm 64-bits (Armv8/AArch64)
-    ARM64 = 0xB7,
+    ARM64,
     /// Zilog Z80
-    Z80 = 0xDC,
+    Z80,
     /// RISC-V
-    RISCV = 0xF3,
+    RISCV,
     /// Berkeley Packet Filter
-    BerkeleyPacketFilter = 0xF7,
+    BerkeleyPacketFilter,
     /// WDC 65C816
+    WDC65C816,
+    /// Custom value
+    Custom(u16),
+}
+
+int_enum! {
+    Machine as u16:
+    None = 0x00,
+    M32 = 0x01,
+    SPARC = 0x02,
+    X86 = 0x03,
+    M68k = 0x04,
+    M88k = 0x05,
+    IntelMCU = 0x06,
+    Intel80860 = 0x07,
+    MIPS = 0x08,
+    S370 = 0x09,
+    MipsRS3LE = 0x0A,
+    PARISC = 0x0F,
+    Intel80960 = 0x13,
+    PowerPC = 0x14,
+    PowerPC64 = 0x15,
+    S390 = 0x16,
+    SPU = 0x17,
+    V800 = 0x24,
+    FR20 = 0x25,
+    RH32 = 0x26,
+    RCE = 0x27,
+    ARM = 0x28,
+    DigitalAlpha = 0x29,
+    SuperH = 0x2A,
+    SPARC9 = 0x2B,
+    TriCore = 0x2C,
+    ARC = 0x2D,
+    H8_300 = 0x2E,
+    H8_300H = 0x2F,
+    H8S = 0x30,
+    H8_500 = 0x31,
+    IA64 = 0x32,
+    MipsX = 0x33,
+    ColdFire = 0x34,
+    M68HC12 = 0x35,
+    MMA = 0x36,
+    PCP = 0x37,
+    NCPU = 0x38,
+    NDR1 = 0x39,
+    StarCore = 0x3A,
+    ME16 = 0x3B,
+    ST100 = 0x3C,
+    TinyJ = 0x3D,
+    X86_64 = 0x3E,
+    SonyDSP = 0x3F,
+    PDP10 = 0x40,
+    PDP11 = 0x41,
+    FX66 = 0x42,
+    ST9 = 0x43,
+    ST7 = 0x44,
+    MC68HC16 = 0x45,
+    MC68HC11 = 0x46,
+    MC68HC08 = 0x47,
+    MC68HC05 = 0x48,
+    SVx = 0x49,
+    ST19 = 0x4A,
+    DigitalVAX = 0x4B,
+    AxisCommunications = 0x4C,
+    InfineonTechnologies = 0x4D,
+    Element14 = 0x4E,
+    LSILogic = 0x4F,
+    TMS320C6000 = 0x8C,
+    MCSTElbrusE2k = 0xAF,
+    ARM64 = 0xB7,
+    Z80 = 0xDC,
+    RISCV = 0xF3,
+    BerkeleyPacketFilter = 0xF7,
     WDC65C816 = 0x101,
 }
 
 /// ELF is supposed to be 32/64. This is a trait to specify this. It's implemented for [u32] and [u64].
 pub trait SizeT: Sized + RW {
+    fn new(value: u64) -> Self;
     fn class() -> Class;
+    fn elf_header_size() -> u16;
+    fn segment_header_size() -> u16;
+    fn section_header_size() -> u16;
+}
+
+// * Segment
+
+/// p_type. A segment type (type of a program header). Most segments will probably have type [SegmentType::Load]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SegmentType {
+    /// Program header table entry unused.
+    None,
+    /// Loadable segment.
+    Load,
+    /// Dynamic linking information.
+    Dynamic,
+    /// Interpreter information.
+    Interpreter,
+    /// Auxiliary information.
+    Note,
+    /// Reserved.
+    ShLib,
+    /// Segment containing program header table itself.
+    Phdr,
+    /// Thread-Local Storage template.
+    Tls,
+    /// Custom value
+    Custom(u32),
+}
+
+int_enum! {
+    SegmentType as u32:
+    None = 0x00,
+    Load = 0x01,
+    Dynamic = 0x02,
+    Interpreter = 0x03,
+    Note = 0x04,
+    ShLib = 0x05,
+    Phdr = 0x06,
+    Tls = 0x07,
+}
+
+/// p_flags. Essentially permissions. See [`Segment::flags`] for details
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SegmentFlags {
+    ///  Executable segment
+    Executable = 0x1,
+    ///  Writeable segment
+    Writeable = 0x2,
+    ///  Readable segment
+    Readable = 0x4,
 }
 
 // * ------------------------------------ E_IDENT ----------------------------------- * //
 /// e_ident. Specifies class, byte order and ABI of the ELF
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ident {
+    /// Class, ELF32/ELF64
     pub class: Class,
+    /// Byte order
     pub byte_order: ByteOrder,
+    /// Identifies the target operating system ABI
     pub abi: ABI,
+    /// ABI version, usually 0
     pub abi_version: u8,
 }
 
@@ -258,23 +491,23 @@ impl Ident {
     pub fn write<W: std::io::Write>(&self, file: &mut W) -> Result<()> {
         file.write_all(&[
             0x7f, 0x45, 0x4c, 0x46,
-            self.class as u8, self.byte_order as u8, 1,
-            self.abi as u8, self.abi_version,
+            self.class.int_value(), self.byte_order.int_value(), 1,
+            self.abi.int_value(), self.abi_version,
             0, 0, 0, 0, 0, 0, 0,
         ]).map_err(|err|Error::io(err, "e_ident"))
     }
 
     /// Read the Ident from a file. It's done automatically by the [`ELF::read()`].
-    /// Can be used with [`ELF::read_reminder()`] to determine ELF class:
+    /// Can be used with [`ELF::read_remainder()`] to determine ELF class:
     /// ```
     /// use orecc_elf::{ELF, Ident, Class};
     ///
     /// let mut file = std::fs::File::open("test.o").unwrap();
     /// let ident = Ident::read(&mut file).unwrap();
     /// if ident.class == Class::ELF64 {
-    ///     dbg!(ELF::<u64>::read(&mut file)).unwrap();
+    ///     dbg!(ELF::<u64>::read_remainder(&mut file, ident)).unwrap();
     /// } else {
-    ///     dbg!(ELF::<u32>::read(&mut file)).unwrap();
+    ///     dbg!(ELF::<u32>::read_remainder(&mut file, ident)).unwrap();
     /// }
     /// ```
     pub fn read<R: std::io::Read>(file: &mut R) -> Result<Self> {
@@ -297,10 +530,9 @@ impl Ident {
             return Err(Error::parse("version should be always 1", "version"));
         }
 
-        let class = Class::from_int(class).map_err(|err| Error::parse(err, "class"))?;
-        let byte_order = ByteOrder::from_int(byte_order)
-            .map_err(|err| Error::parse(err, "data (byte_order)"))?;
-        let abi = ABI::from_int(abi).map_err(|err| Error::parse(err, "abi"))?;
+        let class = Class::from_int(class);
+        let byte_order = ByteOrder::from_int(byte_order)?;
+        let abi = ABI::from_int(abi);
         Ok(Self {
             class,
             byte_order,
@@ -316,22 +548,33 @@ impl Ident {
 /// [`Self::new()`] to construct it from scratch
 /// and [`Self::write()`] to write it to a file
 /// `T` generic can be [u32] for ELF32 and [u64] for ELF64
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ELF<T: SizeT> {
+    /// An ident
     pub ident: Ident,
+    /// Identifies object file type
     pub e_type: Type,
+    /// Specifies target instruction set architecture
     pub machine: Machine,
+    /// This is the memory address of the entry point from where the process starts executing. Should be 0 if no entry point
     pub entry_point: T,
+    /// Segments/Program headers (Loaded when executed)
+    pub segments: Vec<Segment<T>>,
+    /// Sections (When linking turned into segment)
+    pub sections: Vec<Section<T>>,
+    /// Flags, usually 0. Interpretation of this field depends on the target architecture
+    pub flags: u32,
+    /// Contains index of the section header table entry that contains the section names
+    pub section_header_string_table_index: u16,
 }
 
 macro_rules! rw_enum {
-    (read $type: ident, $name: ident, $display_part: ident, $storage: ident, $ident: ident, $file: ident) => {
+    (read $type: ident, $name: ident, $storage: ident, $ident: ident, $file: ident) => {
         $type::from_int($storage::read(
             $file,
             $ident.byte_order,
             stringify!($display_part),
         )?)
-        .map_err(|err| Error::parse(err, stringify!($display_part)))?
     };
 
     (write $self: ident, $part: ident, $file: ident) => {
@@ -343,8 +586,36 @@ macro_rules! rw_enum {
 }
 
 impl<T: SizeT> ELF<T> {
-    /// Constructs a new ELF from scratch. To make an [Ident] you will need to call [`Ident::new()`]
-    pub fn new(ident: Ident, e_type: Type, machine: Machine, entry_point: T) -> Result<Self> {
+    /// Constructs a new ELF from scratch.
+    /// To make an [Ident] you will need to call [`Ident::new()`]
+    /// This is a simplified constructor which assumes:
+    /// - String table is the last section (if exists)
+    /// - flags are 0
+    /// - places segments continuously (first segment at adress 0, second right after the end of the first, etc.)
+    /// For more flexability you can do:
+    /// ```
+    /// use orecc_elf::*;
+    /// dbg!(
+    ///     ELF::<u64> {
+    ///         ident: Ident::default(),
+    ///         e_type: Type::Exec,
+    ///         machine: Machine::X86_64,
+    ///         entry_point: 0xDEADBEEF,
+    ///         segments: Vec::new(),
+    ///         sections: Vec::new(),
+    ///         flags: 0,
+    ///         section_header_string_table_index: 0,
+    ///     }
+    /// );
+    /// ```
+    pub fn new(
+        ident: Ident,
+        e_type: Type,
+        machine: Machine,
+        entry_point: T,
+        segments: Vec<Segment<T>>,
+        sections: Vec<Section<T>>,
+    ) -> Result<Self> {
         if ident.class != T::class() {
             return Err(Error::Error(format!(
                 "Expected ELF class {:?}, got class {:?}",
@@ -353,11 +624,17 @@ impl<T: SizeT> ELF<T> {
             )));
         }
 
+        let section_header_string_table_index = sections.len().saturating_sub(1) as _;
+
         Ok(Self {
             ident,
             e_type,
             machine,
             entry_point,
+            segments,
+            sections,
+            flags: 0,
+            section_header_string_table_index,
         })
     }
 
@@ -369,11 +646,30 @@ impl<T: SizeT> ELF<T> {
         1_u32.write(file, self.ident.byte_order, "e_version")?;
         self.entry_point
             .write(file, self.ident.byte_order, "e_entry")?;
+
+        T::new(T::elf_header_size() as u64).write(file, self.ident.byte_order, "e_phoff")?;
+        T::new(
+            T::elf_header_size() as u64
+                + T::segment_header_size() as u64 * self.segments.len() as u64,
+        )
+        .write(file, self.ident.byte_order, "e_shoff")?;
+
+        self.flags.write(file, self.ident.byte_order, "e_flags")?;
+        T::elf_header_size().write(file, self.ident.byte_order, "e_ehsize")?;
+
+        T::segment_header_size().write(file, self.ident.byte_order, "e_phentsize")?;
+        (self.segments.len() as u16).write(file, self.ident.byte_order, "e_phnum")?;
+
+        T::section_header_size().write(file, self.ident.byte_order, "e_shentsize")?;
+        (self.sections.len() as u16).write(file, self.ident.byte_order, "e_shnum")?;
+
+        self.section_header_string_table_index
+            .write(file, self.ident.byte_order, "e_shstrndx")?;
         Ok(())
     }
 
     /// Read an ELF from a file
-    pub fn read<R: std::io::Read>(file: &mut R) -> Result<Self> {
+    pub fn read<R: std::io::Read + std::io::Seek>(file: &mut R) -> Result<Self> {
         let ident = Ident::read(file)?;
         if ident.class != T::class() {
             return Err(Error::Error(format!(
@@ -383,79 +679,136 @@ impl<T: SizeT> ELF<T> {
             )));
         }
 
-        Self::read_reminder(file, ident)
+        Self::read_remainder(file, ident)
     }
 
     /// Read an ELF from a file when you already read [Ident]
-    pub fn read_reminder<R: std::io::Read>(file: &mut R, ident: Ident) -> Result<Self> {
-        let e_type = rw_enum!(read Type, e_type, e_type, u16, ident, file);
-        let machine = rw_enum!(read Machine, machine, e_machine, u16, ident, file);
+    pub fn read_remainder<R: std::io::Read>(file: &mut R, ident: Ident) -> Result<Self> {
+        let e_type = rw_enum!(read Type, e_type, u16, ident, file);
+        let machine = rw_enum!(read Machine, machine, u16, ident, file);
         if u32::read(file, ident.byte_order, "e_version")? != 1 {
             return Err(Error::parse("ELF version should be always 1", "e_version"));
         }
         let entry_point = T::read(file, ident.byte_order, "e_entry")?;
+
+        let program_headers_offset = T::read(file, ident.byte_order, "e_phoff")?;
+        let section_headers_offset = T::read(file, ident.byte_order, "e_shoff")?;
+
+        let flags = u32::read(file, ident.byte_order, "e_flags")?;
+        let elf_header_size = u16::read(file, ident.byte_order, "e_ehsize")?;
+        if elf_header_size != T::elf_header_size() {
+            return Err(Error::Error(format!(
+                "Invalid elf header size, expected {}, got {elf_header_size}!",
+                T::elf_header_size()
+            )));
+        }
+
+        let segment_header_size = u16::read(file, ident.byte_order, "e_phentsize")?;
+        if segment_header_size != T::segment_header_size() {
+            return Err(Error::Error(format!(
+                "Invalid segment header size, expected {}, got {segment_header_size}!",
+                T::segment_header_size()
+            )));
+        }
+        let num_segments = u16::read(file, ident.byte_order, "e_phnum")?;
+
+        let section_header_size = u16::read(file, ident.byte_order, "e_shentsize")?;
+        if section_header_size != T::section_header_size() {
+            return Err(Error::Error(format!(
+                "Invalid section header size, expected {}, got {section_header_size}!",
+                T::section_header_size()
+            )));
+        }
+        let num_sections = u16::read(file, ident.byte_order, "e_shnum")?;
+
+        let section_header_string_table_index = u16::read(file, ident.byte_order, "e_shstrndx")?;
+
         Ok(Self {
             ident,
             e_type,
             machine,
             entry_point,
+            flags,
+            segments: Vec::new(),
+            sections: Vec::new(),
+            section_header_string_table_index,
         })
     }
 }
 
+// * ----------------------------------- Segments ----------------------------------- * //
+/// A segment, this gets loaded into memory when elf file gets executed
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Segment<T: SizeT> {
+    /// Identifies the type of the segment
+    p_type: SegmentType,
+    /// Virtual address of the segment in memory
+    virtual_address: T,
+    /// On systems where physical address is relevant, reserved for segment's physical address
+    physical_address: T,
+    /// Size in bytes of the segment in memory. May be 0. May be more then data to pad segment with zeros
+    size: u32,
+    /// Segment-dependent flags. Essentially permissions, specified with [SegmentFlags] like that:
+    /// ```
+    /// use orecc_elf::SegmentFlags;
+    /// let flags = SegmentFlags::Readable as u32 | SegmentFlags::Writeable as u32;
+    /// dbg!(flags);
+    /// ```
+    flags: u32,
+}
+
+// * ----------------------------------- Sections ----------------------------------- * //
+/// Section, when linking turned into segment
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Section<T: SizeT> {
+    __: T,
+}
+
 // * ------------------------------------- Size ------------------------------------- * //
 impl SizeT for u32 {
+    fn new(value: u64) -> Self {
+        value as _
+    }
+
     fn class() -> Class {
         Class::ELF32
+    }
+
+    fn elf_header_size() -> u16 {
+        52
+    }
+
+    fn segment_header_size() -> u16 {
+        32
+    }
+
+    fn section_header_size() -> u16 {
+        40
     }
 }
 
 impl SizeT for u64 {
+    fn new(value: u64) -> Self {
+        value
+    }
+
     fn class() -> Class {
         Class::ELF64
     }
+
+    fn elf_header_size() -> u16 {
+        64
+    }
+
+    fn segment_header_size() -> u16 {
+        56
+    }
+
+    fn section_header_size() -> u16 {
+        64
+    }
 }
 
-// pub fn pack<W: std::io::Write>(file: &mut W, data: &[u8]) -> std::io::Result<()> {
-//     let class = 0x2;
-//     let byte_order = 0x1;
-//     let abi = 0x0;
-//     let abi_version = 0x0;
-
-//     file.write_all(&[0x7f, 0x45, 0x4c, 0x46])?; // Magic
-//     #[rustfmt::skip]
-//     file.write_all(&[class, byte_order, 0x1, abi, abi_version, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])?;
-//     elf64_header(file)?;
-//     Ok(())
-// }
-
-// pub fn elf64<W: std::io::Write>(file: &mut W) -> std::io::Result<()> {
-//     let program_header_entry_size: u16 = 56;
-//     let section_header_entry_size: u16 = 64;
-
-//     let elf_type: u16 = 0x2;
-//     let machine: u16 = 0x3;
-//     let entry_point: u64 = 0; // .
-//     let program_header_offset: u64 = 0; // .
-//     let section_header_offset: u64 = 0; // .
-//     let flags: u32 = 0;
-//     let string_table_index: u16 = 0;
-
-//     file.write_all(&elf_type.to_le_bytes())?;
-//     file.write_all(&machine.to_le_bytes())?;
-//     file.write_all(&1_u32.to_le_bytes())?;
-//     file.write_all(&entry_point.to_le_bytes())?;
-//     file.write_all(&program_header_offset.to_le_bytes())?;
-//     file.write_all(&section_header_offset.to_le_bytes())?;
-//     file.write_all(&flags.to_le_bytes())?;
-//     file.write_all(&64_u16.to_le_bytes())?;
-//     file.write_all(&program_header_entry_size.to_le_bytes())?;
-//     file.write_all(&0_u16.to_le_bytes())?; // e_phnum
-//     file.write_all(&section_header_entry_size.to_le_bytes())?;
-//     file.write_all(&0_u16.to_le_bytes())?; // e_shnum
-//     file.write_all(&string_table_index.to_le_bytes())?;
-//     Ok(())
-// }
 // * ------------------------------------ Errors ------------------------------------ * //
 /// A custom result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -486,15 +839,4 @@ impl std::fmt::Display for Error {
             Error::Error(msg) => f.write_str(msg),
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // #[test]
-    // fn it_works() {
-    //     let result = add(2, 2);
-    //     assert_eq!(result, 4);
-    // }
 }
