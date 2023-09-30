@@ -10,7 +10,6 @@ pub trait RW: Sized {
     ) -> Result<()>;
 }
 
-#[macro_export]
 macro_rules! impl_rw {
     (integer $name: ident) => {
         impl RW for $name {
@@ -46,8 +45,6 @@ macro_rules! impl_rw {
         }
     };
 }
-
-pub use impl_rw;
 
 impl_rw!(integer i8);
 impl_rw!(integer u8);

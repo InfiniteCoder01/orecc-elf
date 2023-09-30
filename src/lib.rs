@@ -1,24 +1,53 @@
+//! Easy read/write ELF 32/64 relocatibles/executables/dynamics
+//!
+//! To read an elf file:
+//! ```
+//! let mut file = std::fs::File::open("test.o").unwrap();
+//! dbg!(orecc_elf::ELF::<u64>::read(&mut file));
+//! ```
+//!
+//! To write an elf file:
+//! ```
+//! let mut file = std::fs::File::create("test.o").unwrap();
+//! orecc_elf::ELF::new(
+//!     orecc_elf::Ident::default(),
+//!     orecc_elf::Type::Exec,
+//!     orecc_elf::Machine::X86_64,
+//!     0xDEADBEEF_u64,
+//! )
+//! .unwrap()
+//! .write(file)
+//! .unwrap();
+//! ```
+
 use int_enum::IntEnum;
-pub mod serde;
+mod serde;
 use serde::*;
 
 // * ------------------------------------ Structs ----------------------------------- * //
+/// Class, stored in e_ident. ELF32/ELF64
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum Class {
+    /// 32 bit ELF file. Adresses are encoded as u32.
     ELF32 = 1,
+    /// 64 bit ELF file. Adresses are encoded as u64.
     #[default]
     ELF64 = 2,
 }
 
+/// Byte order, stored in e_ident.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum ByteOrder {
+    /// Little Endian
     #[default]
     LSB = 1,
+    /// Big endian
     MSB = 2,
 }
 
+/// ABI. There is planety to chose from, but you probably should just use [ABI::None]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum ABI {
@@ -42,80 +71,179 @@ pub enum ABI {
     OpenVOS = 16,
 }
 
+/// Type of the ELF.
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum Type {
+    /// Relocatable file
     Rel = 1,
+    /// Executable file
     Exec = 2,
+    /// Shared object
     Dyn = 3,
+    /// Core file
     Core = 4,
 }
 
+/// Machine. There is A LOT of them. Most common are [Machine::X86], [Machine::X86_64], [Machine::ARM] and [Machine::ARM64]
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, IntEnum)]
 pub enum Machine {
+    /// No specific instruction set
+    None = 0x00,
+    /// AT&T WE 32100
     M32 = 0x01,
+    /// SPARC
     SPARC = 0x02,
+    /// x86
     X86 = 0x03,
+    /// Motorola 68000 (M68k)
     M68k = 0x04,
+    /// Motorola 88000 (M88k)
     M88k = 0x05,
-    IAMCU = 0x06,
-    I860 = 0x07,
+    /// Intel MCU
+    IntelMCU = 0x06,
+    /// Intel 80860
+    Intel80860 = 0x07,
+    /// MIPS
     MIPS = 0x08,
+    /// IBM System/370
     S370 = 0x09,
+    /// MIPS RS3000 Little-endian
     MipsRS3LE = 0x0A,
+    /// Hewlett-Packard PA-RISC
     PARISC = 0x0F,
-    I960 = 0x13,
+    /// Intel 80960
+    Intel80960 = 0x13,
+    /// PowerPC
     PowerPC = 0x14,
+    /// PowerPC (64-bit)
+    PowerPC64 = 0x15,
+    /// S390, including S390x
     S390 = 0x16,
+    /// IBM SPU/SPC
     SPU = 0x17,
+    /// NEC V800
     V800 = 0x24,
+    /// Fujitsu FR20
     FR20 = 0x25,
+    /// TRW RH-32
     RH32 = 0x26,
-    MotorolaRCE = 0x27,
+    /// Motorola RCE
+    RCE = 0x27,
+    /// Arm (up to Armv7/AArch32)
     ARM = 0x28,
+    /// Digital Alpha
     DigitalAlpha = 0x29,
+    /// SuperH
     SuperH = 0x2A,
-    SPARCV9 = 0x2B,
+    /// SPARC Version 9
+    SPARC9 = 0x2B,
+    /// Siemens TriCore embedded processor
     TriCore = 0x2C,
+    /// Argonaut RISC Core
     ARC = 0x2D,
+    /// Hitachi H8/300
     H8_300 = 0x2E,
+    /// Hitachi H8/300H
     H8_300H = 0x2F,
+    /// Hitachi H8S
     H8S = 0x30,
+    /// Hitachi H8/500
     H8_500 = 0x31,
+    /// IA-64
     IA64 = 0x32,
+    /// Stanford MIPS-X
     MipsX = 0x33,
+    /// Motorola ColdFire
     ColdFire = 0x34,
+    /// Motorola M68HC12
     M68HC12 = 0x35,
+    /// Fujitsu MMA Multimedia Accelerator
     MMA = 0x36,
+    /// Siemens PCP
     PCP = 0x37,
+    /// Sony nCPU embedded RISC processor
     NCPU = 0x38,
+    /// Denso NDR1 microprocessor
     NDR1 = 0x39,
+    /// Motorola Star*Core processor
     StarCore = 0x3A,
+    /// Toyota ME16 processor
     ME16 = 0x3B,
+    /// STMicroelectronics ST100 processor
     ST100 = 0x3C,
+    /// Advanced Logic Corp. TinyJ embedded processor family
     TinyJ = 0x3D,
+    /// AMD x86-64
     X86_64 = 0x3E,
-    MCSTElbrus = 0xAF,
+    /// Sony DSP Processor
+    SonyDSP = 0x3F,
+    /// Digital Equipment Corp. PDP-10
+    PDP10 = 0x40,
+    /// Digital Equipment Corp. PDP-11
+    PDP11 = 0x41,
+    /// Siemens FX66 microcontroller
+    FX66 = 0x42,
+    /// STMicroelectronics ST9+ 8/16 bit microcontroller
+    ST9 = 0x43,
+    /// STMicroelectronics ST7 8-bit microcontroller
+    ST7 = 0x44,
+    /// Motorola MC68HC16 Microcontroller
+    MC68HC16 = 0x45,
+    /// Motorola MC68HC11 Microcontroller
+    MC68HC11 = 0x46,
+    /// Motorola MC68HC08 Microcontroller
+    MC68HC08 = 0x47,
+    /// Motorola MC68HC05 Microcontroller
+    MC68HC05 = 0x48,
+    /// Silicon Graphics SVx
+    SVx = 0x49,
+    /// STMicroelectronics ST19 8-bit microcontroller
+    ST19 = 0x4A,
+    /// Digital VAX
+    DigitalVAX = 0x4B,
+    /// Axis Communications 32-bit embedded processor
+    AxisCommunications = 0x4C,
+    /// Infineon Technologies 32-bit embedded processor
+    InfineonTechnologies = 0x4D,
+    /// Element 14 64-bit DSP Processor
+    Element14 = 0x4E,
+    /// LSI Logic 16-bit DSP Processor
+    LSILogic = 0x4F,
+    /// TMS320C6000 Family
     TMS320C6000 = 0x8C,
-    Aarch64 = 0xB7,
+    /// MCST Elbrus e2k
+    MCSTElbrusE2k = 0xAF,
+    /// Arm 64-bits (Armv8/AArch64)
+    ARM64 = 0xB7,
+    /// Zilog Z80
+    Z80 = 0xDC,
+    /// RISC-V
     RISCV = 0xF3,
-    BPF = 0xF7,
+    /// Berkeley Packet Filter
+    BerkeleyPacketFilter = 0xF7,
+    /// WDC 65C816
     WDC65C816 = 0x101,
 }
 
-pub trait SizeT: Sized + RW {}
+/// ELF is supposed to be 32/64. This is a trait to specify this. It's implemented for [u32] and [u64].
+pub trait SizeT: Sized + RW {
+    fn class() -> Class;
+}
 
 // * ------------------------------------ E_IDENT ----------------------------------- * //
+/// e_ident. Specifies class, byte order and ABI of the ELF
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ident {
-    class: Class,
-    byte_order: ByteOrder,
-    abi: ABI,
-    abi_version: u8,
+    pub class: Class,
+    pub byte_order: ByteOrder,
+    pub abi: ABI,
+    pub abi_version: u8,
 }
 
 impl Ident {
+    /// Constructs a new Ident to write it afterwards
     pub fn new(class: Class, byte_order: ByteOrder, abi: ABI, abi_version: u8) -> Self {
         Self {
             class,
@@ -125,6 +253,7 @@ impl Ident {
         }
     }
 
+    /// Write the Ident to a file. It's done automatically by the [`ELF::write()`]
     #[rustfmt::skip]
     pub fn write<W: std::io::Write>(&self, file: &mut W) -> Result<()> {
         file.write_all(&[
@@ -135,6 +264,19 @@ impl Ident {
         ]).map_err(|err|Error::io(err, "e_ident"))
     }
 
+    /// Read the Ident from a file. It's done automatically by the [`ELF::read()`].
+    /// Can be used with [`ELF::read_reminder()`] to determine ELF class:
+    /// ```
+    /// use orecc_elf::{ELF, Ident, Class};
+    ///
+    /// let mut file = std::fs::File::open("test.o").unwrap();
+    /// let ident = Ident::read(&mut file).unwrap();
+    /// if ident.class == Class::ELF64 {
+    ///     dbg!(ELF::<u64>::read(&mut file)).unwrap();
+    /// } else {
+    ///     dbg!(ELF::<u32>::read(&mut file)).unwrap();
+    /// }
+    /// ```
     pub fn read<R: std::io::Read>(file: &mut R) -> Result<Self> {
         let mut buffer = [0_u8; 4];
         file.read_exact(&mut buffer).map_err(|err| {
@@ -169,12 +311,17 @@ impl Ident {
 }
 
 // * ------------------------------------ Header ------------------------------------ * //
+/// The ELF file itself. This what you will be using.
+/// Use [`Self::read()`] to read if from a file,
+/// [`Self::new()`] to construct it from scratch
+/// and [`Self::write()`] to write it to a file
+/// `T` generic can be [u32] for ELF32 and [u64] for ELF64
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ELF<T: SizeT> {
-    ident: Ident,
-    e_type: Type,
-    machine: Machine,
-    entry_point: T,
+    pub ident: Ident,
+    pub e_type: Type,
+    pub machine: Machine,
+    pub entry_point: T,
 }
 
 macro_rules! rw_enum {
@@ -196,15 +343,25 @@ macro_rules! rw_enum {
 }
 
 impl<T: SizeT> ELF<T> {
-    pub fn new(ident: Ident, e_type: Type, machine: Machine, entry_point: T) -> Self {
-        Self {
+    /// Constructs a new ELF from scratch. To make an [Ident] you will need to call [`Ident::new()`]
+    pub fn new(ident: Ident, e_type: Type, machine: Machine, entry_point: T) -> Result<Self> {
+        if ident.class != T::class() {
+            return Err(Error::Error(format!(
+                "Expected ELF class {:?}, got class {:?}",
+                T::class(),
+                ident.class
+            )));
+        }
+
+        Ok(Self {
             ident,
             e_type,
             machine,
             entry_point,
-        }
+        })
     }
 
+    /// Write an ELF to a file
     pub fn write<W: std::io::Write>(&self, file: &mut W) -> Result<()> {
         self.ident.write(file)?;
         rw_enum!(write self, e_type, file);
@@ -215,8 +372,22 @@ impl<T: SizeT> ELF<T> {
         Ok(())
     }
 
+    /// Read an ELF from a file
     pub fn read<R: std::io::Read>(file: &mut R) -> Result<Self> {
         let ident = Ident::read(file)?;
+        if ident.class != T::class() {
+            return Err(Error::Error(format!(
+                "Expected ELF class {:?}, got class {:?}",
+                T::class(),
+                ident.class
+            )));
+        }
+
+        Self::read_reminder(file, ident)
+    }
+
+    /// Read an ELF from a file when you already read [Ident]
+    pub fn read_reminder<R: std::io::Read>(file: &mut R, ident: Ident) -> Result<Self> {
         let e_type = rw_enum!(read Type, e_type, e_type, u16, ident, file);
         let machine = rw_enum!(read Machine, machine, e_machine, u16, ident, file);
         if u32::read(file, ident.byte_order, "e_version")? != 1 {
@@ -233,8 +404,17 @@ impl<T: SizeT> ELF<T> {
 }
 
 // * ------------------------------------- Size ------------------------------------- * //
-impl SizeT for u32 {}
-impl SizeT for u64 {}
+impl SizeT for u32 {
+    fn class() -> Class {
+        Class::ELF32
+    }
+}
+
+impl SizeT for u64 {
+    fn class() -> Class {
+        Class::ELF64
+    }
+}
 
 // pub fn pack<W: std::io::Write>(file: &mut W, data: &[u8]) -> std::io::Result<()> {
 //     let class = 0x2;
@@ -276,32 +456,25 @@ impl SizeT for u64 {}
 //     file.write_all(&string_table_index.to_le_bytes())?;
 //     Ok(())
 // }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-//     // #[test]
-//     // fn it_works() {
-//     //     let result = add(2, 2);
-//     //     assert_eq!(result, 4);
-//     // }
-// }
 // * ------------------------------------ Errors ------------------------------------ * //
+/// A custom result type
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A custom error type
 #[derive(Clone, Debug)]
 pub enum Error {
+    /// The file you reading is not an ELF file
     Signature(String),
+    /// The ELF file is corrupted
     Error(String),
 }
 
 impl Error {
-    pub fn io(err: std::io::Error, part: &str) -> Self {
+    fn io(err: std::io::Error, part: &str) -> Self {
         Self::Error(format!("failed to read/write {part} to/from a file: {err}"))
     }
 
-    pub fn parse(err: impl ToString, part: &str) -> Self {
+    fn parse(err: impl ToString, part: &str) -> Self {
         Self::Error(format!("failed to parse {part}: {}", err.to_string()))
     }
 }
@@ -313,4 +486,15 @@ impl std::fmt::Display for Error {
             Error::Error(msg) => f.write_str(msg),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #[test]
+    // fn it_works() {
+    //     let result = add(2, 2);
+    //     assert_eq!(result, 4);
+    // }
 }
