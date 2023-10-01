@@ -6,16 +6,62 @@
 //! dbg!(orecc_elf::ELF::<u64>::read(&mut file));
 //! ```
 //!
-//! To write an elf file:
+//! To write an elf file (source: https://www.youtube.com/watch?v=XH6jDiKxod8):
 //! ```
-//! // TODO: Add an actual example with some actual code
 //! let mut file = std::fs::File::create("test.o").unwrap();
-//! orecc_elf::ELF::new(
+//! // An x86 program that just exits
+//! let data = [
+//!     0xB8, 0x01, 0x00, 0x00, 0x00,
+//!     0xBB, 0x00, 0x00, 0x00, 0x00,
+//!     0xCD, 0x80,
+//! ];
+//! orecc_elf::ELF::<u32>::new(
+//!     orecc_elf::Ident::new(
+//!         orecc_elf::Class::ELF32,
+//!         orecc_elf::ByteOrder::LSB,
+//!         orecc_elf::ABI::None,
+//!         0,
+//!     ),
+//!     orecc_elf::Type::Exec,
+//!     orecc_elf::Machine::X86,
+//!     true,
+//!     vec![
+//!         orecc_elf::SegmentTemplate::new(
+//!             orecc_elf::SegmentType::Load,
+//!             data.to_vec(),
+//!             data.len() as _,
+//!             orecc_elf::SegmentFlags::Readable as u32 | orecc_elf::SegmentFlags::Executable as u32,
+//!         )
+//!     ],
+//!     Vec::new(),
+//! )
+//! .unwrap()
+//! .write(&mut file)
+//! .unwrap();
+//! ```
+//!
+//! x86_64 version:
+//! ```
+//! let mut file = std::fs::File::create("test.o").unwrap();
+//! // An x86 program that just exits
+//! let data = [
+//!     0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00,
+//!     0x48, 0xC7, 0xC7, 0x2A, 0x00, 0x00, 0x00,
+//!     0x0F, 0x05,
+//! ];
+//! orecc_elf::ELF::<u64>::new(
 //!     orecc_elf::Ident::default(),
 //!     orecc_elf::Type::Exec,
 //!     orecc_elf::Machine::X86_64,
-//!     0xDEADBEEF_u64,
-//!     Vec::new(),
+//!     true,
+//!     vec![
+//!         orecc_elf::SegmentTemplate::new(
+//!             orecc_elf::SegmentType::Load,
+//!             data.to_vec(),
+//!             data.len() as _,
+//!             orecc_elf::SegmentFlags::Readable as u32 | orecc_elf::SegmentFlags::Executable as u32,
+//!         )
+//!     ],
 //!     Vec::new(),
 //! )
 //! .unwrap()
@@ -406,10 +452,12 @@ int_enum! {
 /// ELF is supposed to be 32/64. This is a trait to specify this. It's implemented for [u32] and [u64].
 pub trait SizeT: Sized + RW {
     fn new(value: u64) -> Self;
-    fn class() -> Class;
-    fn elf_header_size() -> u16;
-    fn segment_header_size() -> u16;
-    fn section_header_size() -> u16;
+    fn value(&self) -> u64;
+    const CLASS: Class;
+    const ELF_HEADER_SIZE: u16;
+    const SEGMENT_HEADER_SIZE: u16;
+    const SECTION_HEADER_SIZE: u16;
+    const MOVE_PFLAGS: bool;
 }
 
 // * Segment
@@ -454,11 +502,11 @@ int_enum! {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SegmentFlags {
     ///  Executable segment
-    Executable = 0x1,
+    Executable = 0x01,
     ///  Writeable segment
-    Writeable = 0x2,
+    Writeable = 0x02,
     ///  Readable segment
-    Readable = 0x4,
+    Readable = 0x04,
 }
 
 // * ------------------------------------ E_IDENT ----------------------------------- * //
@@ -541,8 +589,47 @@ impl Ident {
         })
     }
 }
+/// A segment template, [Segment] will be generated from it
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SegmentTemplate<T: SizeT> {
+    /// Identifies the type of the segment
+    pub p_type: SegmentType,
+    /// Data of this segment
+    pub data: Vec<u8>,
+    /// Size in bytes of the segment in memory. May be 0. May be more then data to pad segment with zeros
+    pub size: T,
+    /// Segment-dependent flags. Essentially permissions, specified with [SegmentFlags] like that:
+    /// ```
+    /// use orecc_elf::SegmentFlags;
+    /// let flags = SegmentFlags::Readable as u32 | SegmentFlags::Executable as u32;
+    /// assert_eq!(flags, 0x05);
+    /// ```
+    pub flags: u32,
+}
+
+impl<T: SizeT> SegmentTemplate<T> {
+    /// Create a new segment template. Used with [`ELF::new()`]
+    pub fn new(p_type: SegmentType, data: Vec<u8>, size: T, flags: u32) -> Self {
+        Self {
+            p_type,
+            data,
+            size,
+            flags,
+        }
+    }
+}
 
 // * ------------------------------------ Header ------------------------------------ * //
+impl Machine {
+    fn text_region_address(self) -> u64 {
+        match self {
+            Self::X86 => 0x08048000,
+            Self::X86_64 => 0x400000,
+            _ => 100, // TODO: not tested
+        }
+    }
+}
+
 /// The ELF file itself. This what you will be using.
 /// Use [`Self::read()`] to read if from a file,
 /// [`Self::new()`] to construct it from scratch
@@ -558,9 +645,9 @@ pub struct ELF<T: SizeT> {
     pub machine: Machine,
     /// This is the memory address of the entry point from where the process starts executing. Should be 0 if no entry point
     pub entry_point: T,
-    /// Segments/Program headers (Loaded when executed)
+    /// Segments/Program headers (Loaded when executed). Do not add them, offsets will probably mess up
     pub segments: Vec<Segment<T>>,
-    /// Sections (When linking turned into segment)
+    /// Sections (When linking turned into segment). Do not add them, offsets will probably mess up
     pub sections: Vec<Section<T>>,
     /// Flags, usually 0. Interpretation of this field depends on the target architecture
     pub flags: u32,
@@ -588,10 +675,10 @@ macro_rules! rw_enum {
 impl<T: SizeT> ELF<T> {
     /// Constructs a new ELF from scratch.
     /// To make an [Ident] you will need to call [`Ident::new()`]
-    /// This is a simplified constructor which assumes:
-    /// - String table is the last section (if exists)
-    /// - flags are 0
-    /// - places segments continuously (first segment at adress 0, second right after the end of the first, etc.)
+    /// This is a simplified constructor:
+    /// - Assumes, that string table is the last section (if exists)
+    /// - Sets flags to 0
+    /// - If has_entry_point is true, entry point will be set to the start of the first segment
     /// For more flexability you can do:
     /// ```
     /// use orecc_elf::*;
@@ -612,25 +699,66 @@ impl<T: SizeT> ELF<T> {
         ident: Ident,
         e_type: Type,
         machine: Machine,
-        entry_point: T,
-        segments: Vec<Segment<T>>,
+        has_entry_point: bool,
+        segments: Vec<SegmentTemplate<T>>,
         sections: Vec<Section<T>>,
     ) -> Result<Self> {
-        if ident.class != T::class() {
+        if ident.class != T::CLASS {
             return Err(Error::Error(format!(
                 "Expected ELF class {:?}, got class {:?}",
-                T::class(),
+                T::CLASS,
                 ident.class
             )));
         }
 
         let section_header_string_table_index = sections.len().saturating_sub(1) as _;
 
+        let segments = {
+            let align = 0x1000;
+
+            let mut offset = T::ELF_HEADER_SIZE as u64
+                + T::SEGMENT_HEADER_SIZE as u64 * segments.len() as u64
+                + T::SECTION_HEADER_SIZE as u64 * sections.len() as u64;
+            let mut virtual_address = machine.text_region_address() + (offset % align);
+
+            segments
+                .into_iter()
+                .map(|segment| {
+                    let segment_offset = offset;
+                    let segment_virtual_address = virtual_address;
+                    offset += segment.data.len() as u64;
+                    virtual_address += segment.size.value();
+                    Segment {
+                        p_type: segment.p_type,
+                        data: segment.data,
+                        offset: T::new(segment_offset),
+                        virtual_address: T::new(segment_virtual_address),
+                        physical_address: T::new(0),
+                        size: segment.size,
+                        flags: segment.flags,
+                        align: T::new(align),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+
         Ok(Self {
             ident,
             e_type,
             machine,
-            entry_point,
+            entry_point: if has_entry_point {
+                T::new(
+                    segments
+                        .get(0)
+                        .ok_or(Error::Error(String::from(
+                            "Can't have an entry point with no segments",
+                        )))?
+                        .virtual_address
+                        .value(),
+                )
+            } else {
+                T::new(0)
+            },
             segments,
             sections,
             flags: 0,
@@ -639,7 +767,12 @@ impl<T: SizeT> ELF<T> {
     }
 
     /// Write an ELF to a file
-    pub fn write<W: std::io::Write>(&self, file: &mut W) -> Result<()> {
+    pub fn write<W: std::io::Write + std::io::Seek>(&self, file: &mut W) -> Result<()> {
+        let segment_headers_offset = T::ELF_HEADER_SIZE as u64;
+        let section_headers_offset =
+            segment_headers_offset + T::SEGMENT_HEADER_SIZE as u64 * self.segments.len() as u64;
+
+        // * Ident
         self.ident.write(file)?;
         rw_enum!(write self, e_type, file);
         rw_enum!(write self, machine, file);
@@ -647,34 +780,60 @@ impl<T: SizeT> ELF<T> {
         self.entry_point
             .write(file, self.ident.byte_order, "e_entry")?;
 
-        T::new(T::elf_header_size() as u64).write(file, self.ident.byte_order, "e_phoff")?;
-        T::new(
-            T::elf_header_size() as u64
-                + T::segment_header_size() as u64 * self.segments.len() as u64,
-        )
+        // * Offsets
+        T::new(if self.segments.is_empty() {
+            0
+        } else {
+            segment_headers_offset
+        })
+        .write(file, self.ident.byte_order, "e_phoff")?;
+        T::new(if self.sections.is_empty() {
+            0
+        } else {
+            section_headers_offset
+        })
         .write(file, self.ident.byte_order, "e_shoff")?;
 
+        // * Flags
         self.flags.write(file, self.ident.byte_order, "e_flags")?;
-        T::elf_header_size().write(file, self.ident.byte_order, "e_ehsize")?;
+        T::ELF_HEADER_SIZE.write(file, self.ident.byte_order, "e_ehsize")?;
 
-        T::segment_header_size().write(file, self.ident.byte_order, "e_phentsize")?;
+        // * Segments
+        T::SEGMENT_HEADER_SIZE.write(file, self.ident.byte_order, "e_phentsize")?;
         (self.segments.len() as u16).write(file, self.ident.byte_order, "e_phnum")?;
 
-        T::section_header_size().write(file, self.ident.byte_order, "e_shentsize")?;
+        // * Sections
+        T::SECTION_HEADER_SIZE.write(file, self.ident.byte_order, "e_shentsize")?;
         (self.sections.len() as u16).write(file, self.ident.byte_order, "e_shnum")?;
 
         self.section_header_string_table_index
             .write(file, self.ident.byte_order, "e_shstrndx")?;
+
+        // * Segment headers
+        let mut cursor =
+            section_headers_offset + T::SECTION_HEADER_SIZE as u64 * self.sections.len() as u64;
+        for segment in &self.segments {
+            segment.write_header(file, &mut cursor, self.ident.byte_order)?;
+        }
+
+        // * Segment data
+        for segment in &self.segments {
+            file.seek(std::io::SeekFrom::Start(segment.offset.value()))
+                .map_err(|err| Error::io(err, "segment data"))?;
+            file.write_all(&segment.data)
+                .map_err(|err| Error::io(err, "segment data"))?;
+        }
+
         Ok(())
     }
 
     /// Read an ELF from a file
     pub fn read<R: std::io::Read + std::io::Seek>(file: &mut R) -> Result<Self> {
         let ident = Ident::read(file)?;
-        if ident.class != T::class() {
+        if ident.class != T::CLASS {
             return Err(Error::Error(format!(
                 "Expected ELF class {:?}, got class {:?}",
-                T::class(),
+                T::CLASS,
                 ident.class
             )));
         }
@@ -696,27 +855,27 @@ impl<T: SizeT> ELF<T> {
 
         let flags = u32::read(file, ident.byte_order, "e_flags")?;
         let elf_header_size = u16::read(file, ident.byte_order, "e_ehsize")?;
-        if elf_header_size != T::elf_header_size() {
+        if elf_header_size != T::ELF_HEADER_SIZE {
             return Err(Error::Error(format!(
                 "Invalid elf header size, expected {}, got {elf_header_size}!",
-                T::elf_header_size()
+                T::ELF_HEADER_SIZE
             )));
         }
 
         let segment_header_size = u16::read(file, ident.byte_order, "e_phentsize")?;
-        if segment_header_size != T::segment_header_size() {
+        if segment_header_size != T::SEGMENT_HEADER_SIZE {
             return Err(Error::Error(format!(
                 "Invalid segment header size, expected {}, got {segment_header_size}!",
-                T::segment_header_size()
+                T::SEGMENT_HEADER_SIZE
             )));
         }
         let num_segments = u16::read(file, ident.byte_order, "e_phnum")?;
 
         let section_header_size = u16::read(file, ident.byte_order, "e_shentsize")?;
-        if section_header_size != T::section_header_size() {
+        if section_header_size != T::SECTION_HEADER_SIZE {
             return Err(Error::Error(format!(
                 "Invalid section header size, expected {}, got {section_header_size}!",
-                T::section_header_size()
+                T::SECTION_HEADER_SIZE
             )));
         }
         let num_sections = u16::read(file, ident.byte_order, "e_shnum")?;
@@ -741,20 +900,51 @@ impl<T: SizeT> ELF<T> {
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Segment<T: SizeT> {
     /// Identifies the type of the segment
-    p_type: SegmentType,
+    pub p_type: SegmentType,
+    /// Data of this segment
+    pub data: Vec<u8>,
+    /// Offset of the segment in the file image
+    pub offset: T,
     /// Virtual address of the segment in memory
-    virtual_address: T,
+    pub virtual_address: T,
     /// On systems where physical address is relevant, reserved for segment's physical address
-    physical_address: T,
+    pub physical_address: T,
     /// Size in bytes of the segment in memory. May be 0. May be more then data to pad segment with zeros
-    size: u32,
+    pub size: T,
     /// Segment-dependent flags. Essentially permissions, specified with [SegmentFlags] like that:
     /// ```
     /// use orecc_elf::SegmentFlags;
-    /// let flags = SegmentFlags::Readable as u32 | SegmentFlags::Writeable as u32;
-    /// dbg!(flags);
+    /// let flags = SegmentFlags::Readable as u32 | SegmentFlags::Executable as u32;
+    /// assert_eq!(flags, 0x05);
     /// ```
-    flags: u32,
+    pub flags: u32,
+    /// 0 and 1 specify no alignment. Otherwise should be a positive, integral power of 2. I don't really know how it works
+    pub align: T,
+}
+
+impl<T: SizeT> Segment<T> {
+    fn write_header<W: std::io::Write>(
+        &self,
+        file: &mut W,
+        cursor: &mut u64,
+        byte_order: ByteOrder,
+    ) -> Result<()> {
+        self.p_type.int_value().write(file, byte_order, "p_type")?;
+        if T::MOVE_PFLAGS {
+            self.flags.write(file, byte_order, "p_flags")?;
+        }
+        T::new(*cursor).write(file, byte_order, "p_offset")?;
+        self.virtual_address.write(file, byte_order, "p_vaddr")?;
+        self.physical_address.write(file, byte_order, "p_paddr")?;
+        T::new(self.data.len() as _).write(file, byte_order, "p_filesz")?;
+        self.size.write(file, byte_order, "p_memsz")?;
+        if !T::MOVE_PFLAGS {
+            self.flags.write(file, byte_order, "p_flags")?;
+        }
+        self.align.write(file, byte_order, "p_align")?;
+        *cursor += self.data.len() as u64;
+        Ok(())
+    }
 }
 
 // * ----------------------------------- Sections ----------------------------------- * //
@@ -770,21 +960,15 @@ impl SizeT for u32 {
         value as _
     }
 
-    fn class() -> Class {
-        Class::ELF32
+    fn value(&self) -> u64 {
+        *self as _
     }
 
-    fn elf_header_size() -> u16 {
-        52
-    }
-
-    fn segment_header_size() -> u16 {
-        32
-    }
-
-    fn section_header_size() -> u16 {
-        40
-    }
+    const CLASS: Class = Class::ELF32;
+    const ELF_HEADER_SIZE: u16 = 52;
+    const SEGMENT_HEADER_SIZE: u16 = 32;
+    const SECTION_HEADER_SIZE: u16 = 40;
+    const MOVE_PFLAGS: bool = false;
 }
 
 impl SizeT for u64 {
@@ -792,21 +976,15 @@ impl SizeT for u64 {
         value
     }
 
-    fn class() -> Class {
-        Class::ELF64
+    fn value(&self) -> u64 {
+        *self
     }
 
-    fn elf_header_size() -> u16 {
-        64
-    }
-
-    fn segment_header_size() -> u16 {
-        56
-    }
-
-    fn section_header_size() -> u16 {
-        64
-    }
+    const CLASS: Class = Class::ELF64;
+    const ELF_HEADER_SIZE: u16 = 64;
+    const SEGMENT_HEADER_SIZE: u16 = 56;
+    const SECTION_HEADER_SIZE: u16 = 64;
+    const MOVE_PFLAGS: bool = true;
 }
 
 // * ------------------------------------ Errors ------------------------------------ * //
