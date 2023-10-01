@@ -2,5 +2,18 @@
 name = "orecc-elf"
 version = "0.0.1"
 edition = "2021"
+authors = ["InfiniteCoder <nayka.0.lobach.01@gmail.com>"]
+description = "Easy read/write ELF 32/64 relocatibles/executables/dynamics"
+readme = "README.md"
+repository = "https://github.com/InfiniteCoder01/orecc-elf/"
+license = "MIT"
+keywords = ["api", "elf", "object"]
+categories = [
+    "compilers",
+    "development-tools::build-utils",
+    "encoding",
+    "hardware-support",
+    "os",
+]
 
 [dependencies]
