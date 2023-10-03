@@ -43,7 +43,7 @@
 //! x86_64 version:
 //! ```
 //! let mut file = std::fs::File::create("test.o").unwrap();
-//! // An x86 program that just exits
+//! // An x86_64 program that just exits
 //! let data = [
 //!     0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00,
 //!     0x48, 0xC7, 0xC7, 0x2A, 0x00, 0x00, 0x00,
@@ -590,3 +590,7 @@ impl std::fmt::Display for Error {
         }
     }
 }
+
+// * ------------------------------------- Tests ------------------------------------ * //
+#[cfg(test)]
+mod tests;
