@@ -1,6 +1,6 @@
 [package]
 name = "orecc-elf"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 authors = ["InfiniteCoder <nayka.0.lobach.01@gmail.com>"]
 description = "Easy read/write ELF 32/64 relocatibles/executables/dynamics"
