@@ -192,7 +192,7 @@ impl<T: SizeT> SegmentTemplate<T> {
 
 // * ------------------------------------ Header ------------------------------------ * //
 impl Machine {
-    fn text_region_address(self) -> u64 {
+    pub fn text_region_address(self) -> u64 {
         match self {
             Self::X86 => 0x08048000,
             Self::X86_64 => 0x400000,
@@ -250,6 +250,8 @@ impl<T: SizeT> ELF<T> {
     /// - Assumes, that string table is the last section (if exists)
     /// - Sets flags to 0
     /// - If has_entry_point is true, entry point will be set to the start of the first segment
+    /// - Places segments continuously into memory, starting from address
+    ///     `machine.text_region_address() + (T::ELF_HEADER_SIZE + T::SEGMENT_HEADER_SIZE * segments.len() + T::SECTION_HEADER_SIZE * sections.len()) % 0x1000`
     /// For more flexability you can do:
     /// ```
     /// use orecc_elf::*;
