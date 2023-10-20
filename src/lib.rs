@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Easy read/write ELF 32/64 relocatibles/executables/dynamics
 //!
 //! To read an elf file:
@@ -192,11 +193,12 @@ impl<T: SizeT> SegmentTemplate<T> {
 
 // * ------------------------------------ Header ------------------------------------ * //
 impl Machine {
+    /// Get the text region address, see https://stackoverflow.com/questions/2966426/why-do-virtual-memory-addresses-for-linux-binaries-start-at-0x8048000
     pub fn text_region_address(self) -> u64 {
         match self {
             Self::X86 => 0x08048000,
             Self::X86_64 => 0x400000,
-            _ => 100, // TODO: not tested
+            _ => 0x100, // TODO: not tested
         }
     }
 }

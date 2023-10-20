@@ -434,12 +434,25 @@ impl From<target_lexicon::Architecture> for Machine {
 
 /// ELF is supposed to be 32/64. This is a trait to specify this. It's implemented for [u32] and [u64].
 pub trait SizeT: Sized + RW {
+    /// Construct a new value
     fn new(value: u64) -> Self;
+
+    /// Get a value as a [u64]
     fn value(&self) -> u64;
+
+    /// A class for this type, is it for ELF32 or ELF64
     const CLASS: Class;
+
+    /// Header size, bigger for ELF64
     const ELF_HEADER_SIZE: u16;
+
+    /// Segment header size, bigger for ELF64
     const SEGMENT_HEADER_SIZE: u16;
+
+    /// Section header size, bigger for ELF64
     const SECTION_HEADER_SIZE: u16;
+
+    /// For some reason, for ELF64 p_flags are moved
     const MOVE_PFLAGS: bool;
 }
 
